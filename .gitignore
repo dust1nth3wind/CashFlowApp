@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+playwright-report/
+test-results/
+output/
+.playwright-cli/
+coverage/
+src-tauri/target/
+src-tauri/gen/
+*.tmp
+.idea/
+.vscode/

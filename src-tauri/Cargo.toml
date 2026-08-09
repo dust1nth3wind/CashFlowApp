@@ -1,0 +1,32 @@
+[package]
+name = "cashflow-app"
+version = "0.1.0"
+description = "Lokale Finanzübersicht für macOS"
+authors = ["CashFlowApp"]
+edition = "2021"
+rust-version = "1.88"
+
+[lib]
+name = "cashflow_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.6.3", features = [] }
+
+[dependencies]
+calamine = { version = "=0.36.1", features = ["dates"] }
+chrono = { version = "=0.4.45", features = ["serde"] }
+csv = "=1.4.0"
+encoding_rs = "=0.8.35"
+pdf-extract = "=0.12.0"
+regex = "=1.13.1"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+sha2 = "=0.11.0"
+tauri = { version = "=2.11.5", features = [] }
+tauri-plugin-dialog = "=2.7.2"
+thiserror = "=2.0.20"
+uuid = { version = "=1.24.0", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "=3.27.0"

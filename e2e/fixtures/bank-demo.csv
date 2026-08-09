@@ -1,0 +1,7 @@
+Buchungstag;Wertstellung;Empfänger;Verwendungszweck;Betrag;Währung;Transaktions-ID
+02.01.2026;02.01.2026;Muster GmbH;Gehalt Januar;3250,00;EUR;BANK-DEMO-001
+03.01.2026;03.01.2026;Stadtmarkt Mitte;Wocheneinkauf;-86,42;EUR;BANK-DEMO-002
+05.01.2026;05.01.2026;Wohnraum Beispiel;Miete Januar;-1120,00;EUR;BANK-DEMO-003
+07.01.2026;07.01.2026;PayPal Europe S.a.r.l.;Lastschrift Einkauf;-39,90;EUR;BANK-DEMO-004
+09.01.2026;09.01.2026;Trade Republic Bank GmbH;Einzahlung Verrechnungskonto;-250,00;EUR;BANK-DEMO-005
+12.01.2026;12.01.2026;Stadtmarkt Mitte;Erstattung;12,50;EUR;BANK-DEMO-006
