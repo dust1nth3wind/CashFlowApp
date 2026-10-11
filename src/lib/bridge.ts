@@ -4,7 +4,9 @@ import { createDemoState, createEmptyState } from './mockData'
 import type {
   AppSettings,
   AppState,
+  ApplyRuleResult,
   Category,
+  CategorySource,
   CategorizationRule,
   CommitImportResult,
   ImportColumnIndexMapping,
@@ -35,6 +37,14 @@ const text = (value: unknown, fallback = ''): string => typeof value === 'string
 const number = (value: unknown, fallback = 0): number => typeof value === 'number' ? value : fallback
 const bool = (value: unknown, fallback = false): boolean => typeof value === 'boolean' ? value : fallback
 const optionalIndex = (value: unknown): number | undefined => typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
+
+const normalizeCategorySource = (value: unknown): CategorySource | undefined => {
+  if (value === 'manual') return 'manual'
+  if (value === 'userRule' || value === 'user-rule') return 'user-rule'
+  if (value === 'builtInRule' || value === 'built-in') return 'built-in'
+  if (value === 'uncategorized') return 'uncategorized'
+  return undefined
+}
 
 const normalizeSource = (value: unknown): TransactionSource => {
   if (value === 'paypal') return 'paypal'
@@ -116,6 +126,7 @@ const normalizeTransaction = (value: unknown): Transaction => {
     eurAmountMinor: typeof item.eurAmountMinor === 'number' ? item.eurAmountMinor : null,
     type: text(item.kind ?? item.type, 'expense') as Transaction['type'],
     category: text(item.category, 'Unkategorisiert') as Category,
+    categorySource: normalizeCategorySource(item.categorySource),
     importRunId: text(item.importRunId),
     fingerprint: text(item.fingerprint),
     linkedTransactionId: text(item.linkId ?? item.linkedTransactionId) || undefined,
@@ -439,6 +450,7 @@ export const financeBridge = {
         eurAmountMinor: row.eurAmountMinor,
         type,
         category,
+        categorySource: rule ? 'user-rule' : category === 'Unkategorisiert' ? 'uncategorized' : 'built-in',
         importRunId: preview.previewId,
         fingerprint,
         excludedFromTotals: type === 'transfer',
@@ -475,7 +487,7 @@ export const financeBridge = {
           : transaction.eurAmountMinor === null || hasPendingMatch(state, transaction.id)
             ? 'review'
             : 'booked'
-        return { ...transaction, category, type, excludedFromTotals: type === 'transfer', status }
+        return { ...transaction, category, categorySource: 'manual', type, excludedFromTotals: type === 'transfer', status }
       }),
     })
   },
@@ -523,6 +535,56 @@ export const financeBridge = {
     if (isTauri()) return normalizeNativeState(await invoke('upsert_rule', { rule: { id: rule.id, field: rule.kind === 'merchant' ? 'merchant' : 'any', contains: rule.pattern, category: rule.category, enabled: rule.enabled } }))
     const exists = state.rules.some((candidate) => candidate.id === rule.id)
     return persistBrowserState({ ...state, rules: exists ? state.rules.map((candidate) => candidate.id === rule.id ? rule : candidate) : [rule, ...state.rules] })
+  },
+
+  async applyRuleToExistingTransactions(state: AppState, ruleId: string): Promise<ApplyRuleResult> {
+    if (isTauri()) {
+      const response = record(await invoke('apply_rule_to_existing_transactions', { ruleId }))
+      return {
+        state: normalizeNativeState(response),
+        updatedCount: number(response.updatedCount),
+        skippedManualCount: number(response.skippedManualCount),
+      }
+    }
+    const rule = state.rules.find((candidate) => candidate.id === ruleId)
+    if (!rule) throw new Error('Die Regel wurde nicht gefunden.')
+    if (!rule.enabled) throw new Error('Nur aktive Regeln können auf bestehende Buchungen angewendet werden.')
+
+    let updatedCount = 0
+    let skippedManualCount = 0
+    const transactions = state.transactions.map((transaction) => {
+      if (matchingRule([rule], transaction.merchant, transaction.description) !== rule) return transaction
+      if (transaction.categorySource === 'manual') {
+        skippedManualCount += 1
+        return transaction
+      }
+      const type = typeForCategory(rule.category, transaction.originalAmountMinor)
+      const updated: Transaction = {
+        ...transaction,
+        category: rule.category,
+        categorySource: 'user-rule',
+        type,
+        excludedFromTotals: type === 'transfer',
+        status: type === 'transfer'
+          ? 'excluded'
+          : transaction.eurAmountMinor === null || hasPendingMatch(state, transaction.id)
+            ? 'review'
+            : 'booked',
+      }
+      if (
+        updated.category !== transaction.category
+        || updated.categorySource !== transaction.categorySource
+        || updated.type !== transaction.type
+        || updated.excludedFromTotals !== transaction.excludedFromTotals
+        || updated.status !== transaction.status
+      ) updatedCount += 1
+      return updated
+    })
+    return {
+      state: persistBrowserState({ ...state, transactions }),
+      updatedCount,
+      skippedManualCount,
+    }
   },
 
   async deleteRule(state: AppState, ruleId: string): Promise<AppState> {

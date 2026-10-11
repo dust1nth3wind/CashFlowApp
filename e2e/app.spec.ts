@@ -170,6 +170,31 @@ test.describe('Import', () => {
   })
 })
 
+test.describe('Regeln', () => {
+  test('wendet eine Regel auf bestehende Importe an und schützt manuelle Korrekturen', async ({ page }) => {
+    await openDemo(page)
+    await openSection(page, 'nav-transactions', /^Transaktionen$/)
+    await page.getByRole('searchbox', { name: /Transaktionen|suchen/i }).fill('Stadtmarkt')
+    await page.getByLabel('Korrektur als Regel merken').uncheck()
+    await page.locator('[data-testid^="category-"]').first().selectOption({ label: 'Gastronomie' })
+
+    await openSection(page, 'nav-settings', /Regeln & Einstellungen/i)
+    const ruleRow = page.locator('.rule-row:has(input[value="Stadtmarkt"])')
+    await ruleRow.locator('select').nth(1).selectOption({ label: 'Shopping' })
+    page.once('dialog', (dialog) => dialog.accept())
+    await ruleRow.getByRole('button', { name: 'Regel auf bestehende Buchungen anwenden' }).click()
+    await expect(page.getByText(/manuell korrigierte Buchung blieb unverändert/i)).toBeVisible()
+
+    await openSection(page, 'nav-transactions', /^Transaktionen$/)
+    await page.getByRole('searchbox', { name: /Transaktionen|suchen/i }).fill('Stadtmarkt')
+    const categories = await page.locator('[data-testid^="category-"]').evaluateAll(
+      (selects) => selects.map((select) => (select as HTMLSelectElement).value),
+    )
+    expect(categories).toContain('Gastronomie')
+    expect(categories).toContain('Shopping')
+  })
+})
+
 test.describe('Grundlegende Zugänglichkeit und kleine Fenster', () => {
   test('stellt Navigation und Hauptinhalt als benannte Bereiche bereit', async ({ page }) => {
     await openDemo(page)

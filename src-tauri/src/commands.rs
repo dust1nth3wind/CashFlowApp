@@ -8,13 +8,13 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::{
-    categorize::normalize,
+    categorize::{categorize, normalize, rule_matches},
     error::{CommandError, CommandResult},
     import::{create_preview, transaction_fingerprint, verify_cached_files},
     models::{
-        AppState, CachedPreview, CategorizeResponse, CategorySource, CommitImportResponse,
-        CommitResult, CommitRowSelection, ImportPreview, ImportProfile, ImportRun,
-        LoadStateResponse, MatchResolution, PreviewImportRequest, ResolveMatchResponse,
+        AppState, ApplyRuleResponse, CachedPreview, CategorizeResponse, CategorySource,
+        CommitImportResponse, CommitResult, CommitRowSelection, ImportPreview, ImportProfile,
+        ImportRun, LoadStateResponse, MatchResolution, PreviewImportRequest, ResolveMatchResponse,
         ReviewStatus, RuleField, RuleInput, Settings, SettingsPatch, Transaction, TransactionKind,
         TransactionSource, UpsertImportProfileResponse, UserRule,
     },
@@ -470,6 +470,34 @@ pub fn upsert_rule(
 }
 
 #[tauri::command]
+pub fn apply_rule_to_existing_transactions(
+    rule_id: String,
+    backend: State<'_, BackendState>,
+) -> CommandResult<ApplyRuleResponse> {
+    let _guard = lock(&backend.mutation_lock, "Regel rückwirkend anwenden")?;
+    let mut state = backend.store.load()?.state;
+    let rule = state
+        .rules
+        .iter()
+        .find(|rule| rule.id == rule_id)
+        .cloned()
+        .ok_or_else(|| CommandError::not_found("Die Regel wurde nicht gefunden."))?;
+    if !rule.enabled {
+        return Err(CommandError::invalid(
+            "Nur aktive Regeln können auf bestehende Buchungen angewendet werden.",
+        ));
+    }
+
+    let (updated_count, skipped_manual_count) = apply_rule_to_transactions(&mut state, &rule);
+    backend.store.save(&state)?;
+    Ok(ApplyRuleResponse {
+        state,
+        updated_count,
+        skipped_manual_count,
+    })
+}
+
+#[tauri::command]
 pub fn delete_rule(rule_id: String, backend: State<'_, BackendState>) -> CommandResult<AppState> {
     let _guard = lock(&backend.mutation_lock, "Regel löschen")?;
     let mut state = backend.store.load()?.state;
@@ -579,6 +607,78 @@ fn apply_manual_category(transaction: &mut Transaction, category: &str) {
             ReviewStatus::Ready
         };
     }
+}
+
+fn apply_rule_to_transactions(state: &mut AppState, rule: &UserRule) -> (usize, usize) {
+    let pending_transaction_ids = state
+        .pending_matches
+        .iter()
+        .filter(|candidate| candidate.status == MatchResolution::Pending)
+        .flat_map(|candidate| {
+            [
+                candidate.transaction_id.clone(),
+                candidate.candidate_transaction_id.clone(),
+            ]
+        })
+        .collect::<HashSet<_>>();
+    let mut updated_count = 0;
+    let mut skipped_manual_count = 0;
+
+    for transaction in &mut state.transactions {
+        if transaction.source == TransactionSource::Manual
+            || !rule_matches(
+                rule,
+                transaction.merchant.as_deref(),
+                &transaction.description,
+            )
+        {
+            continue;
+        }
+        if transaction.category_source == CategorySource::Manual {
+            skipped_manual_count += 1;
+            continue;
+        }
+
+        let categorization = categorize(
+            transaction.source,
+            transaction.merchant.as_deref(),
+            &transaction.description,
+            transaction.original_amount_minor,
+            std::slice::from_ref(rule),
+        );
+        let previous = (
+            transaction.kind,
+            transaction.category.clone(),
+            transaction.category_source,
+            transaction.excluded_from_totals,
+            transaction.review_status,
+        );
+        transaction.kind = categorization.kind;
+        transaction.category = categorization.category;
+        transaction.category_source = categorization.source;
+        transaction.excluded_from_totals = transaction.kind == TransactionKind::Transfer;
+        transaction.review_status = if transaction.excluded_from_totals {
+            ReviewStatus::Excluded
+        } else if transaction.eur_amount_minor.is_none()
+            || pending_transaction_ids.contains(&transaction.id)
+        {
+            ReviewStatus::NeedsReview
+        } else {
+            ReviewStatus::Ready
+        };
+        let current = (
+            transaction.kind,
+            transaction.category.clone(),
+            transaction.category_source,
+            transaction.excluded_from_totals,
+            transaction.review_status,
+        );
+        if current != previous {
+            updated_count += 1;
+        }
+    }
+
+    (updated_count, skipped_manual_count)
 }
 
 fn apply_eur_conversion(
@@ -794,6 +894,49 @@ mod tests {
                 .unwrap_err()
                 .code,
             "invalidRequest"
+        );
+    }
+
+    #[test]
+    fn retrospective_rule_application_preserves_manual_categories() {
+        let mut automatic = transaction(-5_000);
+        automatic.id = "automatic".into();
+        automatic.fingerprint = "automatic-fingerprint".into();
+        let mut manual = transaction(-2_500);
+        manual.id = "manual".into();
+        manual.fingerprint = "manual-fingerprint".into();
+        manual.category = "Lebensmittel".into();
+        manual.category_source = CategorySource::Manual;
+        let mut state = AppState {
+            transactions: vec![automatic, manual],
+            ..Default::default()
+        };
+        let rule = UserRule {
+            id: "rule".into(),
+            field: RuleField::Merchant,
+            contains: "Beispiel".into(),
+            category: "Transfer".into(),
+            kind: Some(TransactionKind::Transfer),
+            priority: 10,
+            enabled: true,
+            created_at: now_iso(),
+        };
+
+        let counts = apply_rule_to_transactions(&mut state, &rule);
+
+        assert_eq!(counts, (1, 1));
+        assert_eq!(state.transactions[0].category, "Transfer");
+        assert_eq!(
+            state.transactions[0].category_source,
+            CategorySource::UserRule
+        );
+        assert_eq!(state.transactions[0].kind, TransactionKind::Transfer);
+        assert!(state.transactions[0].excluded_from_totals);
+        assert_eq!(state.transactions[0].review_status, ReviewStatus::Excluded);
+        assert_eq!(state.transactions[1].category, "Lebensmittel");
+        assert_eq!(
+            state.transactions[1].category_source,
+            CategorySource::Manual
         );
     }
 }

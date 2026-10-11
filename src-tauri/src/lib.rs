@@ -34,6 +34,7 @@ pub fn run() {
             commands::resolve_match,
             commands::upsert_import_profile,
             commands::upsert_rule,
+            commands::apply_rule_to_existing_transactions,
             commands::delete_rule,
             commands::update_settings,
             commands::restore_backup,
