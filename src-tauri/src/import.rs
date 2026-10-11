@@ -833,22 +833,19 @@ pub fn parse_amount_minor(raw: &str) -> CommandResult<i64> {
 
     let decimal_separator = match (value.rfind(','), value.rfind('.')) {
         (Some(comma), Some(dot)) => Some(if comma > dot { ',' } else { '.' }),
-        (Some(index), None) => ((value.len() - index - 1) <= 2).then_some(','),
-        (None, Some(index)) => ((value.len() - index - 1) <= 2).then_some('.'),
+        (Some(index), None) => single_separator_is_decimal(&value, ',', index).then_some(','),
+        (None, Some(index)) => single_separator_is_decimal(&value, '.', index).then_some('.'),
         (None, None) => None,
     };
     let (major_digits, minor_digits) = if let Some(separator) = decimal_separator {
         let split_at = value.rfind(separator).unwrap();
         let major = value[..split_at].replace([',', '.'], "");
-        let mut minor = value[split_at + 1..].to_string();
-        if minor.len() == 1 {
-            minor.push('0');
-        }
-        if minor.len() > 2 {
-            return Err(CommandError::invalid(format!(
-                "Zu viele Nachkommastellen: {raw}"
-            )));
-        }
+        let fraction = &value[split_at + 1..];
+        let minor = match fraction.len() {
+            0 => "00".into(),
+            1 => format!("{fraction}0"),
+            _ => fraction[..2].to_string(),
+        };
         (major, minor)
     } else {
         (value.replace([',', '.'], ""), "00".into())
@@ -859,10 +856,22 @@ pub fn parse_amount_minor(raw: &str) -> CommandResult<i64> {
     let minor: i64 = minor_digits
         .parse()
         .map_err(|_| CommandError::invalid(format!("Ungültiger Betrag: {raw}")))?;
-    let unsigned = major
+    let mut unsigned = major
         .checked_mul(100)
         .and_then(|major| major.checked_add(minor))
         .ok_or_else(|| CommandError::invalid("Der Betrag ist zu groß."))?;
+    if let Some(separator) = decimal_separator {
+        let split_at = value.rfind(separator).unwrap();
+        if value
+            .as_bytes()
+            .get(split_at + 3)
+            .is_some_and(|digit| *digit >= b'5')
+        {
+            unsigned = unsigned
+                .checked_add(1)
+                .ok_or_else(|| CommandError::invalid("Der Betrag ist zu groß."))?;
+        }
+    }
     Ok(
         if negative_parentheses || trailing_negative || leading_negative {
             -unsigned
@@ -870,6 +879,20 @@ pub fn parse_amount_minor(raw: &str) -> CommandResult<i64> {
             unsigned
         },
     )
+}
+
+fn single_separator_is_decimal(value: &str, separator: char, last_index: usize) -> bool {
+    let fraction_length = value.len() - last_index - separator.len_utf8();
+    if fraction_length <= 2 || fraction_length > 3 {
+        return true;
+    }
+
+    // A single separator followed by exactly three digits is ambiguous. Keep
+    // the established German/international interpretation as a thousands
+    // separator ("1.234" / "1,234"). Repeated groups of three are likewise
+    // thousands groups. Export precision with four or more fractional digits,
+    // as used by Trade Republic, is handled as a decimal value above.
+    false
 }
 
 fn parse_debit_credit(debit: Option<&str>, credit: Option<&str>) -> CommandResult<i64> {
@@ -1154,6 +1177,14 @@ mod tests {
         assert_eq!(parse_amount_minor("(42.00)").unwrap(), -4_200);
         assert_eq!(parse_amount_minor("12,00-").unwrap(), -1_200);
         assert_eq!(parse_amount_minor("1.234").unwrap(), 123_400);
+    }
+
+    #[test]
+    fn parses_trade_republic_precision_without_turning_it_into_millions() {
+        assert_eq!(parse_amount_minor("500.000000").unwrap(), 50_000);
+        assert_eq!(parse_amount_minor("-5.920000").unwrap(), -592);
+        assert_eq!(parse_amount_minor("12.345678").unwrap(), 1_235);
+        assert_eq!(parse_amount_minor("12,345678").unwrap(), 1_235);
     }
 
     #[test]

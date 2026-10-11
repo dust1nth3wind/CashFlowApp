@@ -496,6 +496,14 @@ pub struct CategorizeResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct ApplyRuleResponse {
+    pub state: AppState,
+    pub updated_count: usize,
+    pub skipped_manual_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ResolveMatchResponse {
     pub state: AppState,
     pub match_id: String,

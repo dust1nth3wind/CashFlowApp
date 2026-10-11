@@ -3,6 +3,7 @@ export type AppView = 'dashboard' | 'transactions' | 'import' | 'settings'
 export type TransactionSource = 'paypal' | 'trade-republic' | 'bank'
 export type TransactionType = 'income' | 'expense' | 'refund' | 'transfer' | 'investment'
 export type TransactionStatus = 'booked' | 'review' | 'excluded'
+export type CategorySource = 'manual' | 'user-rule' | 'built-in' | 'uncategorized'
 
 export const STANDARD_CATEGORIES = [
   'Wohnen',
@@ -42,6 +43,7 @@ export interface Transaction {
   eurAmountMinor: number | null
   type: TransactionType
   category: Category
+  categorySource?: CategorySource
   importRunId: string
   fingerprint: string
   linkedTransactionId?: string
@@ -56,6 +58,12 @@ export interface CategorizationRule {
   category: Category
   enabled: boolean
   createdAt: string
+}
+
+export interface ApplyRuleResult {
+  state: AppState
+  updatedCount: number
+  skippedManualCount: number
 }
 
 export interface ImportProfile {

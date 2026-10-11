@@ -8,14 +8,16 @@ interface SettingsViewProps {
   settings: AppSettings
   importRuns: ImportRun[]
   onUpsertRule: (rule: CategorizationRule) => Promise<void>
+  onApplyRule: (rule: CategorizationRule) => Promise<void>
   onDeleteRule: (id: string) => Promise<void>
   onUpdateSettings: (settings: AppSettings) => Promise<void>
   onRestoreBackup: () => Promise<void>
 }
 
-function RuleRow({ rule, onSave, onDelete }: { rule: CategorizationRule; onSave: (rule: CategorizationRule) => Promise<void>; onDelete: (id: string) => Promise<void> }) {
+function RuleRow({ rule, onSave, onApply, onDelete }: { rule: CategorizationRule; onSave: (rule: CategorizationRule) => Promise<void>; onApply: (rule: CategorizationRule) => Promise<void>; onDelete: (id: string) => Promise<void> }) {
   const [draft, setDraft] = useState(rule)
   const [saved, setSaved] = useState(false)
+  const [applying, setApplying] = useState(false)
   const save = async () => {
     try {
       await onSave(draft)
@@ -25,18 +27,28 @@ function RuleRow({ rule, onSave, onDelete }: { rule: CategorizationRule; onSave:
       // The app-level handler displays the actionable error toast.
     }
   }
+  const apply = async () => {
+    setApplying(true)
+    try {
+      await onApply(draft)
+    } catch {
+      // The app-level handler displays the actionable error toast.
+    } finally {
+      setApplying(false)
+    }
+  }
   return (
     <div className="rule-row">
       <label className="switch"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /><span /><span className="sr-only">Regel aktivieren</span></label>
       <label><span>Wenn</span><select value={draft.kind} onChange={(event) => setDraft({ ...draft, kind: event.target.value as CategorizationRule['kind'] })}><option value="merchant">Händler</option><option value="keyword">Text</option></select></label>
       <label className="rule-pattern"><span>enthält</span><input value={draft.pattern} onChange={(event) => setDraft({ ...draft, pattern: event.target.value })} /></label>
       <label><span>dann</span><select value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value as Category })}>{STANDARD_CATEGORIES.map((category) => <option key={category}>{category}</option>)}</select></label>
-      <div className="rule-actions"><button className="icon-button" type="button" aria-label="Regel speichern" onClick={() => void save()}>{saved ? <Check size={16} /> : <Save size={16} />}</button><button className="icon-button danger" type="button" aria-label="Regel löschen" onClick={() => void onDelete(rule.id)}><Trash2 size={16} /></button></div>
+      <div className="rule-actions"><button className="icon-button" type="button" aria-label="Regel speichern" onClick={() => void save()}>{saved ? <Check size={16} /> : <Save size={16} />}</button><button className="icon-button" type="button" aria-label="Regel auf bestehende Buchungen anwenden" title="Speichern und auf bestehende Buchungen anwenden" disabled={!draft.enabled || applying} onClick={() => void apply()}><RotateCcw className={applying ? 'spin' : undefined} size={16} /></button><button className="icon-button danger" type="button" aria-label="Regel löschen" onClick={() => void onDelete(rule.id)}><Trash2 size={16} /></button></div>
     </div>
   )
 }
 
-export function SettingsView({ rules, settings, importRuns, onUpsertRule, onDeleteRule, onUpdateSettings, onRestoreBackup }: SettingsViewProps) {
+export function SettingsView({ rules, settings, importRuns, onUpsertRule, onApplyRule, onDeleteRule, onUpdateSettings, onRestoreBackup }: SettingsViewProps) {
   const [settingsDraft, setSettingsDraft] = useState(settings)
   const addRule = async () => {
     try {
@@ -53,7 +65,7 @@ export function SettingsView({ rules, settings, importRuns, onUpsertRule, onDele
         <div className="settings-heading"><div><p className="section-kicker">Kategorisierung</p><h2>Persönliche Regeln</h2><p>Manuelle Korrekturen stehen immer vor eingebauten Regeln.</p></div><button className="button secondary" type="button" onClick={() => void addRule()}><Plus size={16} />Regel hinzufügen</button></div>
         <div className="rules-list">
           <div className="rule-list-head"><span>Status</span><span>Bedingung</span><span>Suchwert</span><span>Kategorie</span><span>Aktion</span></div>
-          {rules.map((rule) => <RuleRow key={rule.id} rule={rule} onSave={onUpsertRule} onDelete={onDeleteRule} />)}
+          {rules.map((rule) => <RuleRow key={rule.id} rule={rule} onSave={onUpsertRule} onApply={onApplyRule} onDelete={onDeleteRule} />)}
           {!rules.length ? <p className="inline-empty">Noch keine persönlichen Regeln. Neue Regeln entstehen auf Wunsch direkt beim Korrigieren einer Kategorie.</p> : null}
         </div>
       </section>

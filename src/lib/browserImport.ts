@@ -107,7 +107,17 @@ export function parseGermanAmount(value: string): number | null {
       ? unsigned.replace(/\./g, '').replace(',', '.')
       : unsigned.replace(/,/g, '')
   } else if (unsigned.includes(',')) {
-    normalized = unsigned.replace(/\./g, '').replace(',', '.')
+    const separatorIndex = unsigned.lastIndexOf(',')
+    const fractionLength = unsigned.length - separatorIndex - 1
+    normalized = fractionLength === 3
+      ? unsigned.replace(/,/g, '')
+      : `${unsigned.slice(0, separatorIndex).replace(/,/g, '')}.${unsigned.slice(separatorIndex + 1)}`
+  } else if (unsigned.includes('.')) {
+    const separatorIndex = unsigned.lastIndexOf('.')
+    const fractionLength = unsigned.length - separatorIndex - 1
+    normalized = fractionLength === 3
+      ? unsigned.replace(/\./g, '')
+      : `${unsigned.slice(0, separatorIndex).replace(/\./g, '')}.${unsigned.slice(separatorIndex + 1)}`
   } else {
     normalized = unsigned
   }

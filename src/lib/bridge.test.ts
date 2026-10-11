@@ -183,6 +183,19 @@ describe('native finance bridge', () => {
     })
     expect(JSON.stringify(invokeMock.mock.calls[0])).not.toMatch(/\/Users\//)
   })
+
+  it('ruft die native rückwirkende Regelanwendung auf und übernimmt die Zähler', async () => {
+    invokeMock.mockResolvedValue({
+      state: createEmptyState(),
+      updatedCount: 3,
+      skippedManualCount: 1,
+    })
+
+    const result = await financeBridge.applyRuleToExistingTransactions(createEmptyState(), 'rule-1')
+
+    expect(invokeMock).toHaveBeenCalledWith('apply_rule_to_existing_transactions', { ruleId: 'rule-1' })
+    expect(result).toMatchObject({ updatedCount: 3, skippedManualCount: 1 })
+  })
 })
 
 describe('browser categorization parity', () => {
@@ -266,6 +279,47 @@ describe('browser categorization parity', () => {
       excludedFromTotals: true,
       status: 'excluded',
     })
+  })
+
+  it('wendet eine Regel rückwirkend an und schützt manuelle Kategorien', async () => {
+    const base: Transaction = {
+      id: 'automatic',
+      source: 'bank',
+      bookingDate: '2026-08-09',
+      merchant: 'Stadtmarkt Mitte',
+      description: 'Einkauf',
+      originalAmountMinor: -5000,
+      originalCurrency: 'EUR',
+      eurAmountMinor: -5000,
+      type: 'expense',
+      category: 'Unkategorisiert',
+      categorySource: 'uncategorized',
+      importRunId: 'run-1',
+      fingerprint: 'automatic-fingerprint',
+      status: 'booked',
+    }
+    const state = {
+      ...createEmptyState(),
+      rules: [{ id: 'rule-1', kind: 'merchant' as const, pattern: 'Stadtmarkt', category: 'Transfer' as const, enabled: true, createdAt: '' }],
+      transactions: [
+        base,
+        { ...base, id: 'manual', fingerprint: 'manual-fingerprint', category: 'Lebensmittel' as const, categorySource: 'manual' as const },
+        { ...base, id: 'other', fingerprint: 'other-fingerprint', merchant: 'Anderer Händler' },
+      ],
+    }
+
+    const result = await financeBridge.applyRuleToExistingTransactions(state, 'rule-1')
+
+    expect(result).toMatchObject({ updatedCount: 1, skippedManualCount: 1 })
+    expect(result.state.transactions[0]).toMatchObject({
+      category: 'Transfer',
+      categorySource: 'user-rule',
+      type: 'transfer',
+      excludedFromTotals: true,
+      status: 'excluded',
+    })
+    expect(result.state.transactions[1]).toMatchObject({ category: 'Lebensmittel', categorySource: 'manual' })
+    expect(result.state.transactions[2]).toMatchObject({ category: 'Unkategorisiert' })
   })
 
   it('speichert eine EUR-Umrechnung und lässt offene Zuordnungen im Prüfstatus', async () => {

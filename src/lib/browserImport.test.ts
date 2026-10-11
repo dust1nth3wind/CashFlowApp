@@ -6,7 +6,14 @@ describe('Browser-Import', () => {
     expect(parseGermanAmount('-1.234,56 €')).toBe(-123_456)
     expect(parseGermanAmount('3,99')).toBe(399)
     expect(parseGermanAmount('(12,50)')).toBe(-1_250)
+    expect(parseGermanAmount('1.234')).toBe(123_400)
     expect(parseGermanAmount('')).toBeNull()
+  })
+
+  it('liest Trade-Republic-Beträge mit sechs Nachkommastellen als Eurobeträge', () => {
+    expect(parseGermanAmount('500.000000')).toBe(50_000)
+    expect(parseGermanAmount('-5.920000')).toBe(-592)
+    expect(parseGermanAmount('12.345678')).toBe(1_235)
   })
 
   it('liest deutsche und ISO-Daten', () => {

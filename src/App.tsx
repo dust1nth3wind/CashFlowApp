@@ -93,6 +93,26 @@ export default function App() {
     }
   }
 
+  const applyRuleToExistingTransactions = async (rule: CategorizationRule) => {
+    if (!window.confirm('Diese Regel speichern und auf alle passenden bestehenden Buchungen anwenden? Manuell korrigierte Kategorien bleiben unverändert.')) return
+    try {
+      const stateWithSavedRule = await financeBridge.upsertRule(state, rule)
+      setState(stateWithSavedRule)
+      const result = await financeBridge.applyRuleToExistingTransactions(stateWithSavedRule, rule.id)
+      setState(result.state)
+      const protectedMessage = result.skippedManualCount > 0
+        ? ` ${result.skippedManualCount} manuell korrigierte ${result.skippedManualCount === 1 ? 'Buchung blieb' : 'Buchungen blieben'} unverändert.`
+        : ''
+      setToast({
+        message: `${result.updatedCount} bestehende ${result.updatedCount === 1 ? 'Buchung wurde' : 'Buchungen wurden'} aktualisiert.${protectedMessage}`,
+        tone: 'success',
+      })
+    } catch (error) {
+      setToast({ message: errorMessage(error, 'Die Regel konnte nicht auf bestehende Buchungen angewendet werden.'), tone: 'error' })
+      throw error
+    }
+  }
+
   const deleteRule = async (ruleId: string) => {
     if (!window.confirm('Diese persönliche Regel wirklich löschen?')) return
     try {
@@ -141,7 +161,7 @@ export default function App() {
         {view === 'dashboard' ? <DashboardView transactions={state.transactions} range={range} onRangeChange={setRange} onImport={() => navigate('import')} onShowTransactions={() => navigate('transactions')} /> : null}
         {view === 'transactions' ? <TransactionsView transactions={state.transactions} matches={state.matches} defaultRuleCreation={state.settings.defaultRuleCreation} onCategorize={categorize} onResolveMatch={resolveMatch} onUpdateEurAmount={updateTransactionEur} /> : null}
         {view === 'import' ? <ImportView importProfiles={state.importProfiles} onCommit={commitImport} /> : null}
-        {view === 'settings' ? <SettingsView rules={state.rules} settings={state.settings} importRuns={state.importRuns} onUpsertRule={upsertRule} onDeleteRule={deleteRule} onUpdateSettings={updateSettings} onRestoreBackup={restoreBackup} /> : null}
+        {view === 'settings' ? <SettingsView rules={state.rules} settings={state.settings} importRuns={state.importRuns} onUpsertRule={upsertRule} onApplyRule={applyRuleToExistingTransactions} onDeleteRule={deleteRule} onUpdateSettings={updateSettings} onRestoreBackup={restoreBackup} /> : null}
       </main>
       <MobileNavigation active={view} onNavigate={navigate} />
       {toast ? <div className={`toast ${toast.tone}`} role="status"><span>{toast.tone === 'success' ? <Check size={16} /> : <AlertTriangle size={16} />}</span><p>{toast.message}</p><button type="button" aria-label="Hinweis schließen" onClick={() => setToast(null)}><X size={15} /></button></div> : null}
